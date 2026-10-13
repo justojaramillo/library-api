@@ -16,6 +16,8 @@ Orden de trabajo: **primero esta API, después la app.**
 
 Son tutoriales de construcción: cada archivo aparece completo y en orden. Se verifican con `../library_app/docs/replay.py`, que las reproduce en un directorio limpio y comprueba tipos, pruebas, lint y build (ver el README de la app).
 
+> Requiere **Node ≥ 22.12** (recomendado 24; ver `engines` en `package.json`). `firebase-admin` carga módulos ESM con `require()`, que solo funciona desde Node 22.12; con una versión menor, en Vercel verás 500 sin mensaje (`ERR_REQUIRE_ESM`).
+
 ## Puesta en marcha
 
 1. **Firebase** (consola): crea un proyecto, habilita *Authentication → Correo/contraseña*, crea una base de datos *Firestore* y genera una clave de cuenta de servicio (detalle en la sección 2.2 de la guía).

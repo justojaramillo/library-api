@@ -164,11 +164,12 @@ pnpm add -D vitest@5 tsx@4
 
 ## 2.4 Scripts del proyecto
 
-Agrega estos scripts a la sección `"scripts"` de `package.json` (conserva los que ya existen: `dev`, `build`, `start`, `lint`):
+Agrega esto a `package.json`: el campo `engines` y los scripts nuevos (conserva los scripts que ya existen: `dev`, `build`, `start`, `lint`):
 
 {{merge:api:package.json}}
 ```json
 {
+  "engines": { "node": ">=22.12" },
   "scripts": {
     "dev:lan": "next dev -H 0.0.0.0",
     "typecheck": "next typegen && tsc --noEmit",
@@ -182,6 +183,7 @@ Agrega estos scripts a la sección `"scripts"` de `package.json` (conserva los q
 }
 ```
 
+- `engines.node` le dice a Vercel (y a pnpm) la versión mínima de Node. **No es opcional**: `firebase-admin` carga un módulo ESM con `require()`, algo que solo funciona desde Node 22.12. Con una versión más vieja la API se cae en producción con un 500 sin mensaje (`ERR_REQUIRE_ESM`), aunque en tu computador funcione. Vercel elige la versión más alta que cumpla este rango.
 - `dev:lan` hace que el servidor acepte conexiones de tu red local (necesario para usarlo desde el teléfono).
 - `typecheck` primero genera los tipos de rutas de Next (`RouteContext`, `PageProps`) y luego revisa TypeScript.
 - Los scripts `.mts` los escribiremos más adelante; el sufijo `.mts` los marca como módulos ES, necesarios para usar `await` al nivel superior.
@@ -805,7 +807,7 @@ pnpm build
 ## 9.2 Desplegar en Vercel (resumen)
 
 1. Sube el repositorio a GitHub **sin** `.env` ni el `.json`.
-2. En Vercel: *Add New → Project*, elige el repositorio (detecta Next.js solo).
+2. En Vercel: *Add New → Project*, elige el repositorio (detecta Next.js solo). La versión de Node la decide el campo `engines` de tu `package.json` (paso 2.4); si tu panel te deja elegirla en *Settings → General → Node.js Version*, usa 24.x o 22.x.
 3. En *Settings → Environment Variables* crea las cuatro variables. Para `FIREBASE_PRIVATE_KEY` pega el valor con los saltos de línea escritos como `\n`.
 4. Despliega. La URL `https://…vercel.app` es la que irá en la app (`EXPO_PUBLIC_API_URL`).
 
@@ -822,6 +824,7 @@ pnpm build
 | Un bibliotecario nuevo aparece como estudiante | Su token tiene el rol anterior | Cerrar sesión y volver a entrar |
 | `409 ALREADY_ACTIVE` | Ya hay una solicitud o préstamo activo del libro | Es una regla de negocio, no un error |
 | El build de Next falla por `cookies()` o `headers()` | Se leyó un dato de la petición fuera de `Suspense` | Mueve la lectura a un componente dentro de `<Suspense>` |
+| En Vercel todas las rutas con Firebase dan 500 sin cuerpo; en los logs: `ERR_REQUIRE_ESM … jose … jwks-rsa` | Vercel usa una versión de Node anterior a la 22.12 | Agrega `"engines": { "node": ">=22.12" }` a `package.json` (paso 2.4), sube el cambio y haz *Redeploy* |
 | `pnpm typecheck` dice que no existe `RouteContext` o `PageProps` | Aún no se generaron los tipos de rutas | Ejecuta `pnpm typecheck` (corre `next typegen` primero) |
 
 # 11. Bitácora de uso de IA generativa
