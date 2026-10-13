@@ -153,23 +153,22 @@ Ahora sí, instala:
 
 {{run:api}}
 ```bash
-pnpm add firebase-admin@14 zod@4 server-only
+pnpm add firebase-admin@13 zod@4 server-only
 pnpm add -D vitest@5 tsx@4
 ```
 
-- **firebase-admin**: el SDK de administrador de Firebase (solo corre en el servidor).
+- **firebase-admin**: el SDK de administrador de Firebase (solo corre en el servidor). Usamos la versión **13** a propósito: la 14 depende de una versión de `jwks-rsa` que hace `require()` de un módulo ESM, y en Vercel (cuya versión de Node no controlas) la API se cae con un 500 sin mensaje (`ERR_REQUIRE_ESM`). La 13 funciona en cualquier Node ≥ 18.
 - **zod**: validación de entradas.
 - **server-only**: hace que el build falle si por error importas código del servidor desde un componente del navegador.
 - **vitest**: pruebas. **tsx**: ejecuta scripts de TypeScript (para cargar datos).
 
 ## 2.4 Scripts del proyecto
 
-Agrega esto a `package.json`: el campo `engines` y los scripts nuevos (conserva los scripts que ya existen: `dev`, `build`, `start`, `lint`):
+Agrega estos scripts a la sección `"scripts"` de `package.json` (conserva los que ya existen: `dev`, `build`, `start`, `lint`):
 
 {{merge:api:package.json}}
 ```json
 {
-  "engines": { "node": ">=22.12" },
   "scripts": {
     "dev:lan": "next dev -H 0.0.0.0",
     "typecheck": "next typegen && tsc --noEmit",
@@ -183,7 +182,6 @@ Agrega esto a `package.json`: el campo `engines` y los scripts nuevos (conserva 
 }
 ```
 
-- `engines.node` le dice a Vercel (y a pnpm) la versión mínima de Node. **No es opcional**: `firebase-admin` carga un módulo ESM con `require()`, algo que solo funciona desde Node 22.12. Con una versión más vieja la API se cae en producción con un 500 sin mensaje (`ERR_REQUIRE_ESM`), aunque en tu computador funcione. Vercel elige la versión más alta que cumpla este rango.
 - `dev:lan` hace que el servidor acepte conexiones de tu red local (necesario para usarlo desde el teléfono).
 - `typecheck` primero genera los tipos de rutas de Next (`RouteContext`, `PageProps`) y luego revisa TypeScript.
 - Los scripts `.mts` los escribiremos más adelante; el sufijo `.mts` los marca como módulos ES, necesarios para usar `await` al nivel superior.
@@ -203,6 +201,8 @@ FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@tu-proyecto.iam.gserviceaccount.co
 # Entre comillas dobles y con los saltos de línea escritos como \n
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
+
+> [!OJO] En el archivo `.env` la llave privada va **entre comillas dobles** (es sintaxis del archivo). En Vercel (sección 9.2) va **sin comillas**. Es el error más frecuente al desplegar.
 
 4. Crea también la plantilla `.env.example` (esta **sí** se sube a git; solo tiene valores de ejemplo):
 
@@ -801,15 +801,81 @@ pnpm build
 - [ ] Reglas de Firestore en `allow … if false`
 - [ ] En el Firebase de producción no hay cuentas de prueba con contraseñas simples o conocidas (revisa *Authentication → Usuarios*)
 - [ ] La API se sirve por **HTTPS** y la app usa esa URL
-- [ ] Las variables de entorno están configuradas en el servicio de despliegue, no en el código
+- [ ] Las variables de entorno están configuradas en el servicio de despliegue, no en el código, y `FIREBASE_PRIVATE_KEY` está **sin comillas**
 - [ ] `pnpm build`, `pnpm test`, `pnpm lint` y `pnpm typecheck` sin errores
 
-## 9.2 Desplegar en Vercel (resumen)
+## 9.2 Desplegar en Vercel
 
-1. Sube el repositorio a GitHub **sin** `.env` ni el `.json`.
-2. En Vercel: *Add New → Project*, elige el repositorio (detecta Next.js solo). La versión de Node la decide el campo `engines` de tu `package.json` (paso 2.4); si tu panel te deja elegirla en *Settings → General → Node.js Version*, usa 24.x o 22.x.
-3. En *Settings → Environment Variables* crea las cuatro variables. Para `FIREBASE_PRIVATE_KEY` pega el valor con los saltos de línea escritos como `\n`.
-4. Despliega. La URL `https://…vercel.app` es la que irá en la app (`EXPO_PUBLIC_API_URL`).
+### Paso 1 · Archivo de configuración de Vercel
+
+Vercel detecta Next.js por sí solo al importar el proyecto, pero conviene dejarlo escrito en el repositorio. `vercel.json` **anula** el *Framework Preset* y el *Output Directory* del panel, y evita el error `No Output Directory named "dist"` si el proyecto llegó a quedar configurado como sitio estático (por ejemplo, tras tocar los ajustes de compilación).
+
+{{create:api:vercel.json}}
+
+### Paso 2 · Subir el código a GitHub **sin** secretos
+
+Antes de hacer `git add -A`, comprueba que no suban `.env` ni el `.json` de la cuenta de servicio:
+
+```bash
+git status
+git ls-files | grep -E "\.env$|adminsdk"     # debe imprimir NADA
+```
+
+### Paso 3 · Importar el proyecto
+
+En Vercel: *Add New → Project* y elige el repositorio. Comprueba que el *Framework Preset* diga **Next.js** y **no actives ningún «Override»** en *Build Command*, *Output Directory* ni *Install Command*.
+
+### Paso 4 · Variables de entorno (sin comillas)
+
+En *Settings → Environment Variables* crea las cuatro, marcadas para **Production**. **Ninguna lleva comillas**: las comillas del `.env` son sintaxis del archivo y en Vercel se guardarían como parte del valor.
+
+| Variable | Qué pegar |
+|---|---|
+| `FIREBASE_PROJECT_ID` | el `project_id` del `.json` (por ejemplo `mi-proyecto-1a2b3`) |
+| `FIREBASE_WEB_API_KEY` | la `apiKey` del bloque `firebaseConfig` (empieza por `AIza…`) |
+| `FIREBASE_CLIENT_EMAIL` | el `client_email` del `.json` (termina en `.iam.gserviceaccount.com`) |
+| `FIREBASE_PRIVATE_KEY` | el `private_key` del `.json`, **solo el texto de adentro** de las comillas |
+
+La llave privada es la que más falla. En el `.json` se ve así:
+
+```text
+"private_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n",
+```
+
+En Vercel debe quedar **sin la primera `"` ni la última `"`, y sin la coma**:
+
+```text
+-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n
+```
+
+Empieza con `-----BEGIN` y termina con `\n` (los `\n` son texto literal). También sirve pegarla con saltos de línea reales.
+
+### Paso 5 · Desplegar y probar
+
+Despliega (o haz *Redeploy* si cambiaste variables: Vercel **no** aplica cambios de variables a despliegues ya hechos). Usa el **dominio de producción** del proyecto (`https://TU-PROYECTO.vercel.app`), no la URL de un despliegue concreto, que suele tener *Deployment Protection* y responde con una página de inicio de sesión de Vercel.
+
+```bash
+# 1) La función carga y responde
+curl https://TU-PROYECTO.vercel.app/api/health
+
+# 2) Credenciales falsas: debe responder 401 INVALID_CREDENTIALS (no 500)
+curl -X POST https://TU-PROYECTO.vercel.app/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"prueba@example.com","password":"x12345"}'
+
+# 3) Una cuenta real tuya: debe responder 200 con tokens y el rol
+curl -X POST https://TU-PROYECTO.vercel.app/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"estudiante@tucorreo.com","password":"TuClaveEstudiante"}'
+```
+
+El paso 3 es el que comprueba que las credenciales de administrador están bien copiadas: si el 2 funciona pero el 3 responde «Sesión inválida o expirada», revisa `FIREBASE_PRIVATE_KEY` (casi siempre son comillas o un `\n` mal copiado).
+
+### Paso 6 · Apuntar la app
+
+En `library_app/.env`: `EXPO_PUBLIC_API_URL=https://TU-PROYECTO.vercel.app`, y reinicia Expo con `npx expo start -c` (Expo guarda las variables en caché y, si no limpias, la app sigue usando la URL anterior y muestra «sin conexión»).
+
+> [!OJO] **No hagas *Redeploy* de despliegues viejos que fallaron:** reconstruyen su commit antiguo, no el último. Si el dominio responde `DEPLOYMENT_NOT_FOUND`, abre el despliegue correcto en *Deployments* y pulsa **Promote to Production**, y revisa que el dominio esté asignado a *Production* en *Settings → Domains*.
 
 # 10. Problemas frecuentes
 
@@ -817,14 +883,18 @@ pnpm build
 |---|---|---|
 | `CONFIGURATION_NOT_FOUND` al iniciar sesión | Authentication no está inicializado | Consola → Authentication → *Comenzar* y habilitar correo/contraseña |
 | `SERVICE_DISABLED` o `PERMISSION_DENIED` en Firestore | No se creó la base de datos o su API está desactivada | Consola → Firestore → *Crear base de datos* (puede tardar unos minutos en propagarse) |
-| `Faltan variables de entorno: …` | `.env` incompleto o clave privada sin comillas | Revisa `.env.example`; la clave va entre comillas con `\n` |
+| `Faltan variables de entorno: …` | Falta una variable (en `.env` o en Vercel) o su nombre está mal escrito | Revisa `.env.example` y los nombres exactos. En `.env` la clave va entre comillas con `\n`; en Vercel, sin comillas |
 | `Top-level await is currently not supported` al ejecutar scripts | Un script `.ts` se interpreta como CommonJS | Los scripts son `.mts` (ESM) y se ejecutan con `tsx` |
 | `ERR_PNPM_IGNORED_BUILDS` | pnpm 11 pide decidir sobre scripts de instalación | Crea `pnpm-workspace.yaml` **antes** de instalar, como en el paso 2.3 |
 | El teléfono no llega a la API | La API escucha solo en `localhost` o hay firewall | `pnpm dev:lan`, misma red Wi-Fi, abrir el puerto 3000 (en WSL2 ver la Guía 2) |
 | Un bibliotecario nuevo aparece como estudiante | Su token tiene el rol anterior | Cerrar sesión y volver a entrar |
 | `409 ALREADY_ACTIVE` | Ya hay una solicitud o préstamo activo del libro | Es una regla de negocio, no un error |
 | El build de Next falla por `cookies()` o `headers()` | Se leyó un dato de la petición fuera de `Suspense` | Mueve la lectura a un componente dentro de `<Suspense>` |
-| En Vercel todas las rutas con Firebase dan 500 sin cuerpo; en los logs: `ERR_REQUIRE_ESM … jose … jwks-rsa` | Vercel usa una versión de Node anterior a la 22.12 | Agrega `"engines": { "node": ">=22.12" }` a `package.json` (paso 2.4), sube el cambio y haz *Redeploy* |
+| En Vercel todas las rutas con Firebase dan 500 sin cuerpo; en los logs: `ERR_REQUIRE_ESM … jose … jwks-rsa` | Estás usando `firebase-admin` 14 con un Node de Vercel anterior a 22.12 | Usa `firebase-admin@13` (paso 2.3): `pnpm add firebase-admin@13`, sube el cambio y haz *Redeploy* |
+| En Vercel, `Sesión inválida o expirada` al iniciar sesión con una cuenta real (con credenciales falsas sí responde `INVALID_CREDENTIALS`) | `FIREBASE_PRIVATE_KEY` mal copiada: casi siempre con comillas | Pégala **sin comillas** (paso 9.2.4) y haz *Redeploy* |
+| Vercel: `No Output Directory named "dist" found` | El proyecto quedó como sitio estático / con *Override* en el panel | Deja `vercel.json` (paso 9.2.1), o pon *Framework Preset* = Next.js y apaga los *Override*; haz *Redeploy* del **último** commit |
+| El dominio responde `DEPLOYMENT_NOT_FOUND` | El dominio no apunta a ningún despliegue vigente | *Deployments* → el último despliegue → **Promote to Production**; revisa *Settings → Domains* |
+| La app muestra «sin conexión» con la URL de Vercel bien escrita | Expo conserva la URL vieja en caché | Reinicia con `npx expo start -c` y recarga la app |
 | `pnpm typecheck` dice que no existe `RouteContext` o `PageProps` | Aún no se generaron los tipos de rutas | Ejecuta `pnpm typecheck` (corre `next typegen` primero) |
 
 # 11. Bitácora de uso de IA generativa
