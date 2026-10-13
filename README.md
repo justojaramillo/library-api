@@ -59,6 +59,7 @@ pnpm create-user -- bibliotecario@tucorreo.com "TuClave" "Tu Nombre" librarian
 |---|---|
 | `POST /api/auth/register` · `login` · `refresh`, `GET /api/auth/me` | Público / autenticado |
 | `GET /api/books` (`?q=&category=&updatedSince=`), `GET /api/books/:id` | Autenticado |
+| `GET /api/openapi.json` · `GET /api/docs` | Público (especificación OpenAPI y Swagger UI) |
 | `GET /api/books/:id/cover` | Público |
 | `PUT /api/books/:id/cover` | Bibliotecario |
 | `GET /api/loans`, `POST /api/loans` (idempotente por `clientRequestId`) | Autenticado / estudiante |

@@ -44,6 +44,8 @@ No hay límite de usuarios en ningún rol. El catálogo se carga con **10 libros
 | Método y ruta | Quién | Qué hace | Semana |
 |---|---|---|---|
 | `GET /api/health` | Público | Comprueba que el servidor responde | 9 |
+| `GET /api/openapi.json` | Público | Especificación OpenAPI de la API (generada desde los esquemas Zod) | 8 |
+| `GET /api/docs` | Público | Documentación interactiva (Swagger UI) para probar cada ruta | 8 |
 | `GET /api/books?q=&category=&updatedSince=` | Autenticado | Lista de libros; `updatedSince` devuelve solo los modificados | 9 y 10 |
 | `GET /api/books/:id` | Autenticado | Detalle de un libro | 9 y 10 |
 | `POST /api/auth/register` | Público | Crea un estudiante y devuelve tokens | 10 |
@@ -108,7 +110,7 @@ Construye **toda esta guía** (semanas 9 a 12 y el sitio web) y después la **Gu
 | 10 | Capítulo 4: Firebase Auth, roles | Capítulo 4: sesión segura y rutas protegidas | Registro, login y roles |
 | 11 | Capítulo 5: préstamos, idempotencia, conflictos | Capítulo 5: SQLite offline y sincronización | Solicitudes sin conexión |
 | 12 | Capítulo 6: portadas | Capítulo 6: cámara y galería | **Hito 3** |
-| — | Capítulo 7: sitio web · Capítulo 8: pruebas finales | Capítulo 7: pruebas de integración | Entrega |
+| — | Capítulo 7: sitio web · Capítulo 8: documentación OpenAPI y pruebas finales | Capítulo 7: pruebas de integración | Entrega |
 
 # 2. Paso 0 · Preparar el proyecto
 
@@ -588,7 +590,7 @@ curl -i -X PATCH http://localhost:3000/api/loans/ID_DEL_PRESTAMO -H "Authorizati
   -H 'Content-Type: application/json' -d '{"action":"approve"}'
 ```
 
-Para dejar los datos como al inicio: `pnpm reset-demo` (lo creas en el capítulo 8).
+Para dejar los datos como al inicio: `pnpm reset-demo` (lo creas en la sección 8.2).
 
 ## 5.3 Evidencia y criterios
 
@@ -748,15 +750,63 @@ pnpm dev
 3. Cierra sesión y entra con tu **bibliotecario**: en *Gestión de préstamos* aprueba la solicitud; en el detalle de un libro sube una portada (JPEG, PNG o WebP de hasta ~500 KB).
 4. Con una cookie falsa (`library_session=basura` en las herramientas del navegador) la página te devuelve a `/login` sin mostrar datos.
 
-# 8. Pruebas finales y restablecer datos
+# 8. Documentación OpenAPI, pruebas finales y restablecer datos
 
-## 8.1 Restablecer los préstamos y las portadas
+## 8.1 Documentar la API con OpenAPI
+
+Hasta ahora la única "documentación" de la API son estas guías. **OpenAPI** es el estándar para describir una API REST en un archivo (`openapi.json`): qué rutas existen, qué reciben, qué responden y quién puede llamarlas. Con él se genera documentación interactiva (**Swagger UI**) y se importa la API en Postman o Bruno.
+
+La clave de diseño: **la especificación se genera desde los esquemas Zod** que ya validan cada ruta (`lib/schemas.ts`). Así la documentación no puede contradecir al código: si cambias una regla de validación, el documento cambia solo. Además, una prueba compara las rutas documentadas con los archivos `route.ts` reales y **falla si agregas una ruta y olvidas documentarla**.
+
+Instala un validador de OpenAPI (solo para las pruebas):
+
+{{run:api}}
+```bash
+pnpm add -D @seriousme/openapi-schema-validator
+```
+
+### Paso 14.1 · El generador de la especificación
+
+`z.toJSONSchema()` (incluido en Zod 4) convierte un esquema Zod a JSON Schema, que OpenAPI 3.1 entiende directamente. Los cuerpos y parámetros de entrada salen de los esquemas reales; las respuestas se describen con esquemas Zod propios y se reutilizan con `$ref`. Cada operación indica si exige sesión (`security: bearerAuth`) y qué errores puede devolver.
+
+{{create:api:lib/openapi.ts}}
+
+### Paso 14.2 · Las dos rutas nuevas
+
+`/api/openapi.json` entrega la especificación y `/api/docs` una página mínima que carga **Swagger UI** desde un CDN (con la versión fijada) y le indica dónde leerla. Ninguna lee datos de la petición, así que Next las genera una sola vez al compilar. Ambas son públicas: `proxy.ts` no interfiere porque excluye `/api`.
+
+{{create:api:app/api/openapi.json/route.ts}}
+
+{{create:api:app/api/docs/route.ts}}
+
+### Paso 14.3 · La prueba que evita el desfase
+
+Cinco comprobaciones: la especificación es OpenAPI 3.1 **válida**; documenta **exactamente** las rutas y métodos de `app/api`; toda operación protegida declara `Bearer` y el `401`; los cuerpos salen de los esquemas Zod (por ejemplo, la misma expresión regular de `clientRequestId`); y `GET /api/openapi.json` responde.
+
+{{create:api:tests/openapi.test.ts}}
+
+{{checkpoint:api:openapi|typecheck,test,lint}}
+
+> [!NOTA] **Punto de control de OpenAPI.** `pnpm typecheck`, `pnpm test` (6 archivos, 36 pruebas) y `pnpm lint` en verde. Para ver que la prueba protege de verdad, crea una carpeta `app/api/prueba/` con un `route.ts` que exporte un `GET` y vuelve a ejecutar `pnpm test`: debe fallar diciendo que `/api/prueba` no está documentada. Bórrala después.
+
+### Cómo probarla
+
+Con `pnpm dev` en marcha, abre `http://localhost:3000/api/docs`:
+1. Despliega `POST /api/auth/login`, pulsa *Try it out*, escribe el correo y la contraseña de uno de tus usuarios y pulsa *Execute*.
+2. Copia el `idToken` de la respuesta, pulsa **Authorize** (arriba a la derecha) y pégalo, sin la palabra `Bearer`.
+3. Prueba `GET /api/books`, `GET /api/auth/me` o cualquier otra ruta. Los candados indican las que exigen sesión.
+
+Para **Postman** o **Bruno**: *Import → Link* con `http://localhost:3000/api/openapi.json` (o la URL de Vercel) y se crean todas las peticiones solas.
+
+> [!IDEA] La especificación documenta lo que la API **hace hoy**: tiene 12 rutas y 15 operaciones, incluidas las dos nuevas. Cuando agregues una ruta, la prueba te obliga a documentarla en `lib/openapi.ts`.
+
+## 8.2 Restablecer los préstamos y las portadas
 
 Borra todos los préstamos, elimina las portadas y restaura los ejemplares (no toca usuarios). Úsalo entre pruebas:
 
 {{create:api:scripts/reset-demo.mts}}
 
-## 8.2 Prueba de humo contra Firebase real
+## 8.3 Prueba de humo contra Firebase real
 
 Este script ejecuta **41 comprobaciones de extremo a extremo** contra la API en marcha y **limpia todo lo que crea**. No necesita cuentas fijas: crea un estudiante, otro estudiante y un bibliotecario **temporales** con contraseñas aleatorias, y los elimina al terminar junto con los préstamos y la portada de prueba:
 
@@ -779,7 +829,7 @@ pnpm reset-demo                # deja los datos como al inicio
 
 Debe terminar con `✅ Todo OK`.
 
-## 8.3 Verificación completa
+## 8.4 Verificación completa
 
 {{run:api}}
 ```bash
@@ -855,7 +905,7 @@ Empieza con `-----BEGIN` y termina con `\n` (los `\n` son texto literal). Tambi�
 Despliega (o haz *Redeploy* si cambiaste variables: Vercel **no** aplica cambios de variables a despliegues ya hechos). Usa el **dominio de producción** del proyecto (`https://TU-PROYECTO.vercel.app`), no la URL de un despliegue concreto, que suele tener *Deployment Protection* y responde con una página de inicio de sesión de Vercel.
 
 ```bash
-# 1) La función carga y responde
+# 1) La función carga y responde (y la documentación de la API está en /api/docs)
 curl https://TU-PROYECTO.vercel.app/api/health
 
 # 2) Credenciales falsas: debe responder 401 INVALID_CREDENTIALS (no 500)
@@ -895,6 +945,8 @@ En `library_app/.env`: `EXPO_PUBLIC_API_URL=https://TU-PROYECTO.vercel.app`, y r
 | Vercel: `No Output Directory named "dist" found` | El proyecto quedó como sitio estático / con *Override* en el panel | Deja `vercel.json` (paso 9.2.1), o pon *Framework Preset* = Next.js y apaga los *Override*; haz *Redeploy* del **último** commit |
 | El dominio responde `DEPLOYMENT_NOT_FOUND` | El dominio no apunta a ningún despliegue vigente | *Deployments* → el último despliegue → **Promote to Production**; revisa *Settings → Domains* |
 | La app muestra «sin conexión» con la URL de Vercel bien escrita | Expo conserva la URL vieja en caché | Reinicia con `npx expo start -c` y recarga la app |
+| `pnpm test` falla en `openapi.test.ts` con «documenta exactamente las rutas…» | Agregaste, quitaste o cambiaste el método de una ruta en `app/api` sin actualizar `lib/openapi.ts` | Documenta la ruta (o bórrala de la especificación) en `lib/openapi.ts` |
+| `/api/docs` carga en blanco | No hay internet o el CDN (jsDelivr) está bloqueado: Swagger UI se descarga de allí | Revisa la conexión; `/api/openapi.json` sigue funcionando para Postman o Bruno |
 | `pnpm typecheck` dice que no existe `RouteContext` o `PageProps` | Aún no se generaron los tipos de rutas | Ejecuta `pnpm typecheck` (corre `next typegen` primero) |
 
 # 11. Bitácora de uso de IA generativa
